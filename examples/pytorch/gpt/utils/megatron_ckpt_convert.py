@@ -21,6 +21,8 @@ import pathlib
 import re
 import shutil
 import sys
+import logging
+logging.basicConfig(format='[%(asctime)s] %(filename)s %(funcName)s():%(lineno)i [%(levelname)s] %(message)s', level=logging.DEBUG)
 
 import numpy as np
 import torch  # pytype: disable=import-error
@@ -125,15 +127,15 @@ def merge_and_convert_process(i, pipeline_para_rank, saved_dir, factor, key, mod
     major_device = transformer_model_list[0][key].device
 
     if (
-        key.find("input_layernorm.weight") != -1 
+        key.find("input_layernorm.weight") != -1
         or key.find("input_layernorm.bias") != -1
-        or key.find("attention.dense.bias") != -1 
+        or key.find("attention.dense.bias") != -1
         or key.find("post_attention_layernorm.weight") != -1
-        or key.find("post_attention_layernorm.bias") != -1 
+        or key.find("post_attention_layernorm.bias") != -1
         or key.find("mlp.dense_4h_to_h.bias") != -1
         or key.find("adaptor1.dense_4h_to_h.bias") != -1
         or key.find("adaptor2.dense_4h_to_h.bias") != -1
-        or key.find("final_layernorm.weight") != -1 
+        or key.find("final_layernorm.weight") != -1
         or key.find("final_layernorm.bias") != -1):
 
         # shared weights, only need to convert the weights of rank 0
@@ -209,7 +211,7 @@ def merge_and_convert_process(i, pipeline_para_rank, saved_dir, factor, key, mod
         val = torch2np(val, np_weight_data_type)
         saved_path = saved_dir / f"model.{saved_key}.{i:d}.bin"
         val.tofile(saved_path)
-        
+
     else:
         print(f"[ERROR] cannot find key '{key}'")
 
@@ -245,6 +247,9 @@ def split_and_convert_process(i, pipeline_para_rank, saved_dir, factor, key, mod
         or key.find("final_layernorm.bias") != -1
     ):
         # shared weights, only need to convert the weights of rank 0
+        # 是tp中rank为0的worker，上述这些是没有被tp进行切分的参数
+        # 1)所有layernorm（weight&bias）都没有参数tp的切分，因此仅保留rank0的即可
+        # 2）mlp.dense_4h_to_h和attention.dense使用的都是row parallel;按照megatron中的注释，bias没有parallel：If true, add bias. Note that bias is not parallelized.
         if i == 0:
             saved_path = saved_dir / f"model.{saved_key}.bin"
             val.tofile(saved_path.as_posix())
@@ -253,6 +258,7 @@ def split_and_convert_process(i, pipeline_para_rank, saved_dir, factor, key, mod
         or key.find("mlp.dense_4h_to_h.weight") != -1
         or key.find("adaptor1.dense_4h_to_h.weight") != -1
         or key.find("adaptor2.dense_4h_to_h.weight") != -1):
+        # 处理所有row parallel param, 按照row的维度进行切分然后存储
         split_vals = np.split(val, factor, axis=0)
         for j in range(factor):
             saved_path = saved_dir / f"model.{saved_key}.{i * factor + j:d}.bin"
@@ -264,6 +270,7 @@ def split_and_convert_process(i, pipeline_para_rank, saved_dir, factor, key, mod
         or key.find("mlp.dense_h_to_4h.bias") != -1
         or key.find("adaptor1.dense_h_to_4h.bias") != -1
         or key.find("adaptor2.dense_h_to_4h.bias") != -1):
+        # 处理所有column parallel的param，按照column维度进行切分然后存储
         split_vals = np.split(val, factor, axis=-1)
         for j in range(factor):
             saved_path = saved_dir / f"model.{saved_key}.{i * factor + j:d}.bin"
@@ -280,6 +287,7 @@ def split_and_convert_process(i, pipeline_para_rank, saved_dir, factor, key, mod
             val = val.transpose(1, 0, 2)
 
         val = val.reshape(3, local_dim)
+        # 按照列进行切分
         split_vals = np.split(val, factor, axis=-1)
 
         for j in range(factor):
@@ -299,6 +307,7 @@ def split_and_convert_process(i, pipeline_para_rank, saved_dir, factor, key, mod
             val = val.transpose(0, 2, 1, 3)
 
         val = val.reshape(hidden_dim, 3, local_dim)
+        # 按照列进行切分
         split_vals = np.split(val, factor, axis=-1)
 
         for j in range(factor):
@@ -326,6 +335,7 @@ def _get_checkpoint_name(checkpoint_dir):
 
 def convert_checkpoint(args):
     saved_dir = pathlib.Path(args.saved_dir) / f"{args.infer_gpu_num:d}-gpu"
+    logging.info(f"saved_dir: {saved_dir}")
     if saved_dir.exists():
         print(f"[ERROR] Remove {saved_dir} target directory before running conversion")
         sys.exit(1)
@@ -336,6 +346,7 @@ def convert_checkpoint(args):
     if args.merges_path:
         shutil.copy(args.merges_path, (saved_dir / "merges.txt").as_posix())
 
+    logging.info(f"success copy vocab.json and merges.txt to saved_dir")
     load_checkpoints_to_cpu = bool(args.load_checkpoints_to_cpu)
     map_location_fn = cpu_map_location if load_checkpoints_to_cpu else gpu_map_location
 
@@ -344,11 +355,14 @@ def convert_checkpoint(args):
 
     # load position_embedding from rank 0
     checkpoints_paths = sorted(checkpoints_dir.rglob(checkpoint_name))
+    logging.info(f"checkpoints_paths:{checkpoints_paths}")
     if not checkpoints_paths:
         print(f"[ERROR] Cannot find checkpoint in {checkpoints_dir}.")
         exit(1)
-    model_00 = torch.load(checkpoints_paths[0].as_posix(), map_location=map_location_fn)
 
+    # checkpoint加载
+    model_00 = torch.load(checkpoints_paths[0].as_posix(), map_location=map_location_fn)
+    logging.info(f"model_00.keys: {model_00.keys()}")
     if "hyper_parameters" in list(model_00.keys()):
         print("Use nemo_ckpt_converter.py script for conversion of this checkpoint")
         exit(1)
@@ -361,12 +375,14 @@ def convert_checkpoint(args):
         model_training_args = _create_model_training_args_for_checkpoint_version_0(args, model_00)
         megatron_gpt_key = "transformer"
 
+    # 编写args.txt文件
     with (saved_dir / "args.txt").open("w") as training_args_file:
         for k, v in vars(model_training_args).items():
             training_args_file.write(f"{k}:{v}\n")
 
     np_weight_data_type = WEIGHT2DTYPE[args.weight_data_type]
 
+    # 查找position embeddings的weight
     val = model_00["model"]["language_model"]["embedding"]["position_embeddings"]["weight"]
     val = torch2np(val, np_weight_data_type)
     val.tofile((saved_dir / "model.wpe.bin").as_posix())  # not weight, do not need to transpose
@@ -391,26 +407,31 @@ def convert_checkpoint(args):
         ]
         for tp_rank in range(training_tensor_para_size)
     ]
-
+    logging.info(f"model_weights_paths:{model_weights_paths}")
     if training_tensor_para_size > inference_tensor_para_size:
+        # training的para size 大于inference para size时，要求能整除，会执行checkpoint的合并
         assert training_tensor_para_size % inference_tensor_para_size == 0
         is_merge_ckpt = True
         factor = int(training_tensor_para_size / inference_tensor_para_size)
     else:
+        # inference 的para size大于inference的tensor para size时，会执行checkpoint的split
         assert inference_tensor_para_size % training_tensor_para_size == 0
         is_merge_ckpt = False
         factor = int(inference_tensor_para_size / training_tensor_para_size)
 
     main_loop = min(training_tensor_para_size, inference_tensor_para_size)
     vocab_size_list = [0 for i in range(main_loop)]
-    
+
     torch.multiprocessing.set_start_method("spawn")
     torch.multiprocessing.set_sharing_strategy("file_system")
     pool = multiprocessing.Pool(args.processes)
     has_adapters = False
+
+    # tp size
     for i in range(main_loop):
+        # pp size
         for j in range(training_pipeline_para_size):
-            
+
             transformer_models = []
             if is_merge_ckpt:
                 for k in range(factor):
@@ -423,10 +444,11 @@ def convert_checkpoint(args):
                         vocab_size_list[i] = m["model"]["language_model"]["embedding"]["word_embeddings"]["weight"].shape[0]
                         w_e_list.append(torch2np(m["model"]["language_model"]["embedding"]["word_embeddings"]["weight"], np_weight_data_type))
             else:
+                # checkpoint加载
                 m = torch.load(model_weights_paths[i][j].as_posix(), map_location=map_location_fn)
                 if not has_adapters:
                     has_adapters = any("adaptor" in key for key in m['model']['language_model'][megatron_gpt_key].keys())
-            
+
                 if j == 0:
                     vocab_size_list[i] = m["model"]["language_model"]["embedding"]["word_embeddings"]["weight"].shape[0]
                     w_e_list.append(torch2np(
@@ -440,10 +462,10 @@ def convert_checkpoint(args):
                 [
                     (
                         i,
-                        j,
+                        j, # split_and_convert_process
                         saved_dir,
                         factor,
-                        k,
+                        k, # key
                         model_training_args,
                         transformer_models,
                         checkpoint_version,
