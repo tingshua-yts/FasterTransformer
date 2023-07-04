@@ -22,7 +22,8 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-
+import logging
+logging.basicConfig(format='[%(asctime)s] %(filename)s %(funcName)s():%(lineno)i [%(levelname)s] %(message)s', level=logging.DEBUG)
 str_type_map = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}
 
 
@@ -225,7 +226,7 @@ class GPTWeights:
                     self.w[i][j] = func(self.w[i][j])
             else:
                 if self.share_embed and i == self.post_embed_idx:
-                    # If sharing the pre and post embedding, any mapping to 
+                    # If sharing the pre and post embedding, any mapping to
                     # the pre decoder weight will give the same output to the
                     # post decoder weight, so we just copy here.
                     self.w[self.post_embed_idx] = self.w[self.pre_embed_idx]
@@ -531,6 +532,7 @@ class GPT(nn.Module):
         torch.cuda.set_device(self.device)
 
         world_size = dist.get_world_size()
+        logging.info(f"GPT init: world_size:{world_size} tensor_para_size:{tensor_para_size} pipeline_para_size:{pipeline_para_size}")
         assert world_size == tensor_para_size * pipeline_para_size, "tensor_para_size * pipeline_para_size must be equal to world_size."
 
         self.tensor_para_rank = self.rank % self.tensor_para_size

@@ -31,7 +31,7 @@ def convert_token(
     tokens_batch = np.loadtxt(out_file, dtype=np.int32)
     end_id = 50256
     outputs = []
-    if(tokens_batch.ndim == 1): 
+    if(tokens_batch.ndim == 1):
         tokens_batch = tokens_batch.reshape([1, -1])
     for batch_num, tokens in enumerate(tokens_batch):
         if max_input_length > -1:
@@ -43,7 +43,7 @@ def convert_token(
             end_pos = end_index[0]
         print(f"[INFO] batch {batch_num}: \n[input]{enc.decode(tokens[:16])}\n[output]{enc.decode(tokens[16:end_pos])}")
         outputs.append(enc.decode(tokens[:end_pos]))
-        
+
         if text_out_file != None:
             with open(text_out_file, "w+") as f:
                 f.writelines("\n".join(outputs))

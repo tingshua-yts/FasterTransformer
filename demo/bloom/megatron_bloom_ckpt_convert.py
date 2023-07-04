@@ -394,10 +394,10 @@ def convert_checkpoint(args):
     pre_ln_val_w = model_00["model"]["language_model"]["embedding"]["word_embeddings"]["norm.weight"]
     pre_ln_val_w = safe_transpose(pre_ln_val_w)
     pre_ln_val_w = torch2np(pre_ln_val_w, np_weight_data_type)
-    pre_ln_val_w.tofile((saved_dir / "pre_decoder_layernorm.weight").as_posix())
+    pre_ln_val_w.tofile((saved_dir / "model.pre_decoder_layernorm.weight.bin").as_posix())
     pre_ln_val_b = model_00["model"]["language_model"]["embedding"]["word_embeddings"]["norm.bias"]
     pre_ln_val_b = torch2np(pre_ln_val_b, np_weight_data_type)
-    pre_ln_val_b.tofile((saved_dir / "pre_decoder_layernorm.bias").as_posix())
+    pre_ln_val_b.tofile((saved_dir / "model.pre_decoder_layernorm.bias.bin").as_posix())
 
     del model_00
     w_e_list = []

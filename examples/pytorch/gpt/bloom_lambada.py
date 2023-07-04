@@ -127,6 +127,7 @@ def get_args():
         '--checkpoint-path', type=str, metavar='DIR', default=None,
         help='A directory of a converted pretrained checkpoint and model config '
              'If None, a model will inference by random weights.')
+
     group.add_argument(
         '--dataset-path', type=str, metavar='PATH', required=True,
         help="A file path to LAMBADA task dataset.")
@@ -167,6 +168,9 @@ def get_args():
         help='The level of quantization to perform.'
              ' 0: No quantization. All computation in data_type'
              ' 1: Quantize weights to int8, all compute occurs in fp16/bf16. Not supported when data_type is fp32')
+    group.add_argument(
+        '--batch_size', type=int, default=10,
+        help='batch_size for inference')
     args = parser.parse_args()
 
     print('\n=================== Arguments ===================')
@@ -181,6 +185,8 @@ def get_model_and_tokenizer(args: argparse.Namespace):
     tokenizer_path = pathlib.Path(args.tokenizer_path)
     # HF requires left padding for a decoder-only model.
     padding_side = 'left' if args.test_hf else 'right'
+
+    # 加载tokenizer
     if tokenizer_path.is_dir():
         # Load from the HF's pretrained model directory.
         tokenizer = transformers.BloomTokenizerFast.from_pretrained(
@@ -188,19 +194,24 @@ def get_model_and_tokenizer(args: argparse.Namespace):
     else:
         # Directly load from a tokenizer json file.
         tokenizer = transformers.BloomTokenizerFast(
-            tokenizer_file=tokenizer_path, padding_side=padding_side)
+            tokenizer_file=args.tokenizer_path, padding_side=padding_side)
     # For open-ended generation, the pad token is sometimes replaced by the
     # eos token but the Bloom of HF requires as it is to correctly generate.
 
+    # 加载HF模型
     if args.test_hf:
         # Load HF's pretrained model for testing.
+        # model = transformers.AutoModelForCausalLM.from_pretrained(
+        #     args.tokenizer_path).cuda()
         model = transformers.AutoModelForCausalLM.from_pretrained(
-            args.tokenizer_path).cuda()
+            args.tokenizer_path, device_map="balanced_low_0", torch_dtype=torch.float16)
         return model, tokenizer
 
+    # 加载FT模型
     checkpoint_path = pathlib.Path(args.checkpoint_path)
     config_path = checkpoint_path / 'config.ini'
 
+    # 构建FT Config
     if config_path.exists():
         # Read model params from config.
         cfg = configparser.ConfigParser()
@@ -259,7 +270,11 @@ def get_model_and_tokenizer(args: argparse.Namespace):
     if model_args['end_id'] not in (tokenizer.pad_token_id, tokenizer.eos_token_id):
         print('[FT][WARNING] Given end_id is not matched with neither pad '
               'token id nor eos token id of the pretrained tokenizer.')
+
+    # 构建BloomPytorch 模型
     model = bloom.Bloom(**model_args)
+
+    # 加载模型内容
     if not model.load(ckpt_path=args.checkpoint_path):
         print('[FT][WARNING] Skip model loading since no checkpoints are found')
 
@@ -299,11 +314,14 @@ def split_inputs_and_targets(entries: Dict[str, torch.LongTensor],
 def main():
     args = get_args()
     model, tokenizer = get_model_and_tokenizer(args)
+    # import time
+    # time.sleep(3600)
     model.eval()
 
     dataset = LambadaDataset(args.dataset_path, tokenizer=tokenizer)
-    data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size)
 
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size)
+    print(f"batch_size is : {args.batch_size}")
     num_requests = 0
     num_corrects = 0
     results = {"output": {"lambada": []}, "results": {"lambada": {}}}

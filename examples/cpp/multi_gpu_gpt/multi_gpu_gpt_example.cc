@@ -28,6 +28,7 @@
 #include <sys/time.h>
 #include <tuple>
 #include <vector>
+#include <unistd.h>
 
 using namespace fastertransformer;
 
@@ -44,7 +45,8 @@ int main(int argc, char* argv[])
         ini_name = std::string(argv[1]);
     }
     else {
-        ini_name = "../examples/cpp/multi_gpu_gpt/gpt_config.ini";
+        //ini_name = "../examples/cpp/multi_gpu_gpt/gpt_config.ini";
+        ini_name = "../demo/bloom/bloom_bin_config.ini";
     }
 
     std::string in_csv;
@@ -175,7 +177,7 @@ void multi_gpu_gpt_example(const INIReader reader, std::string in_csv)
                                         // p/prompt tuning virtual token start id
                                         model_config.prompt_learning_start_id,
                                         model_config.prompt_learning_type,
-                                        model_config.gpt_variants,
+                                        model_config.gpt_variants, // 用来设定模型结构的参数信息
                                         0.0f,  // beam_search_diversity_rate,
                                         0,     // top_k,
                                         0.0,   // top_p,
@@ -238,6 +240,10 @@ void multi_gpu_gpt_example(const INIReader reader, std::string in_csv)
 
     ft_nvtx::setScope("warmup_time");
     PUSH_RANGE("warmup time")
+    while(true) {
+        sleep(3);
+        std::cout << "sleep 3s" << std::endl;
+    }
     for (int i = 0; i < ite; ++i) {
         gpt.forward(&output_tensors, &input_tensors, &gpt_weights);
     }
