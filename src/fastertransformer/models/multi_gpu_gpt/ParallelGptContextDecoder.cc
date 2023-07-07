@@ -454,6 +454,7 @@ void ParallelGptContextDecoder<T>::forward(
                 }
             }
 
+            // 若是第一个layer则recv 输入信息
             if (isFirstLayerParallelId(l) && pipeline_para_.rank_ != 0) {
                 PUSH_RANGE("input communication");
                 const int data_size = h_token_num * hidden_units_ / tensor_para_.world_size_;
@@ -471,6 +472,7 @@ void ParallelGptContextDecoder<T>::forward(
             }
 
             PUSH_RANGE("pre-mha layernorm");
+            // 计算pre_layernorm
             if (layernorm_type_ == LayerNormType::pre_layernorm) {
                 invokeGeneralLayerNorm(decoder_normed_input_,
                                        decoder_input,
@@ -542,6 +544,7 @@ void ParallelGptContextDecoder<T>::forward(
                 {"key_cache", Tensor{MEMORY_GPU, data_type, self_k_cache_size, k_cache_ptr}},
                 {"value_cache", Tensor{MEMORY_GPU, data_type, self_v_cache_size, v_cache_ptr}}};
 
+            // 计算attention forward
             self_attention_layer_->forward(
                 &self_attention_output_tensors, &self_attention_input_tensors, &layer_weight->self_attention_weights);
 
@@ -597,6 +600,8 @@ void ParallelGptContextDecoder<T>::forward(
                                     &gpt_decoder_layer_weight->at(l)->after_attention_adapter_weights);
             }
 
+            // 若layernorm_type_为pre_layernorm则计算AddBiasResidualPreLayerNorm, 这里包含了FFN的prelayernorm
+            // 若layernorm_type_为post_layernorm则计算invokeAddBiasResidualLayerNorm
             if (layernorm_type_ == LayerNormType::pre_layernorm) {
                 invokeGeneralAddBiasResidualPreLayerNorm(
                     has_adapters_ ? after_adapter_attn_output_ : self_attn_output_,
@@ -636,6 +641,7 @@ void ParallelGptContextDecoder<T>::forward(
 
             T* ffn_output_ptr = has_adapters_ ? self_attn_output_ : decoder_output;
 
+            // 设置ffn input 和output
             TensorMap ffn_input_tensors(
                 {{"ffn_input",
                   Tensor{MEMORY_GPU,
@@ -667,6 +673,7 @@ void ParallelGptContextDecoder<T>::forward(
                     Tensor{MEMORY_GPU, TYPE_INT32, {h_token_num, moe_k_}, expert_for_source_row_});
             }
 
+            // 计算ffn layer
             ffn_layer_->resetInterSize(inter_size_ / tensor_para_.world_size_);
             ffn_layer_->forward(&ffn_output_tensors, &ffn_input_tensors, &layer_weight->ffn_weights);
 
@@ -721,6 +728,8 @@ void ParallelGptContextDecoder<T>::forward(
             }
 
             if (!use_moe) {
+                // 若layernorm_type_为pre_layernorm则计算invokeAddBiasResidual
+                // 若layernorm_type_为post_layernorm则计算invokeAddBiasResidualLayerNorm
                 if (layernorm_type_ == LayerNormType::pre_layernorm) {
                     invokeAddBiasResidual(decoder_output,
                                           decoder_output,
@@ -794,6 +803,7 @@ void ParallelGptContextDecoder<T>::forward(
             sync_check_cuda_error();
             POP_RANGE;
             PUSH_RANGE("Nccl send");
+            // 若是last layer则发送结果
             if (isLastLayerParallelId(l) == true && (pipeline_para_.rank_ != pipeline_para_.world_size_ - 1)) {
                 const int data_size = h_token_num * hidden_units_ / tensor_para_.world_size_;
                 ftNcclSend(decoder_output + data_size * tensor_para_.rank_,

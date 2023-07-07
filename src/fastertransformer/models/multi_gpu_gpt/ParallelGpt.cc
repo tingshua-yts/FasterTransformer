@@ -618,6 +618,8 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
     // When there is no input_ids, put the start token at step 0 of output_ids_buf_. After forward, only copy
     // the step 1 ~ max_output_seq_len of output_ids_buf_ to output_tensors->at(0).data
 
+// 参数配置
+#if 1
     FT_LOG_DEBUG("%s start", __PRETTY_FUNCTION__);
     FT_CHECK_WITH_INFO(input_tensors->size() >= 3, "input_tensors->size() >= 3");
     FT_CHECK_WITH_INFO(output_tensors->size() >= 2, "output_tensors->size() >= 2");
@@ -782,7 +784,10 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
                            "`cum_log_probs` must be provided in `output_tensors` in order to enable "
                            "the cumulative log probability computation of input contexts.");
     }
+#endif
 
+// 内存分配相关
+#if 1
     PUSH_RANGE("buffer allocation");
     if (!continue_gen) {
         allocateBuffer(batch_size,
@@ -807,7 +812,9 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
                                                     16 / sizeof(T)};
     const std::vector<size_t> self_v_cache_shape = {
         num_layer_ / pipeline_para_.world_size_, batch_size * beam_width, local_head_num_, memory_len, size_per_head_};
+#endif
 
+// dynamic decode setup
     {
         PUSH_RANGE("dynamic decode setup");
         TensorMap input_map(*input_tensors);
@@ -817,12 +824,14 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
         POP_RANGE;
     }
 
+// build alibi slopes
     if (gpt_variant_params_.use_attention_linear_bias) {
         PUSH_RANGE("build alibi slopes");
         invokeBuildAlibiSlopes(linear_bias_slopes_, head_num_, stream_);
         POP_RANGE;
     }
 
+// 计算k，v cache
     if (continue_gen) {
         PUSH_RANGE("input tiling and init");
         invokeTileGptInputs(tiled_input_ids_buf_,
@@ -1077,7 +1086,7 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
                  {"value_cache", Tensor(MEMORY_GPU, data_type, self_v_cache_shape, value_cache_)},
                  {"last_token_hidden_units",
                   Tensor(MEMORY_GPU, data_type, {batch_size * beam_width, hidden_units_}, decoder_output_buf_)}});
-
+            // 计算K、V cache
             gpt_context_decoder_->forward(
                 &decoder_output_tensors, &decoder_input_tensors, &gpt_weights->decoder_layer_weights);
 
@@ -1168,6 +1177,7 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
         }
     }
 
+// mask padding tokens
     PUSH_RANGE("mask padding tokens");
     invokeMaskPaddingTokens(masked_tokens_,
                             input_tensors->at("input_lengths").getPtr<int>(),
@@ -1185,6 +1195,8 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
     const size_t local_batch_size = getLocalBatchSize(batch_size, 1, pipeline_para_.world_size_);
     FT_CHECK(batch_size % local_batch_size == 0);
 
+// 计算output
+    // stetp_start为max input length-1，gen_len为max_output_length
     for (step_ = step_start; step_ < (int)gen_len; step_++) {
         // Loop body produces Nth token by embedding && encoding token (N-1)
         // if necessary.
@@ -1331,7 +1343,7 @@ void ParallelGpt<T>::forward(std::unordered_map<std::string, Tensor>*       outp
                 gpt_decoder_->forward(
                     &decoder_output_tensors, &decoder_input_tensors, &gpt_weights->decoder_layer_weights);
             }
-
+            // 最后一个layer 会执行dynamic decoder forward
             if (!fill_caches_only && pipeline_para_.rank_ == pipeline_para_.world_size_ - 1) {
                 // OPT
                 PUSH_RANGE("Token Final Layer Norm");

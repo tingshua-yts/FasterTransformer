@@ -292,7 +292,10 @@ void ParallelGptWeight<T>::mallocWeights()
 template<typename T>
 void ParallelGptWeight<T>::loadModel(std::string dir_path)
 {
+    // 读取配置文件
     FtCudaDataType model_file_type = getModelFileType(dir_path + "/config.ini", "gpt");
+
+    // 初始化weight_ptr
     FT_CHECK(is_maintain_buffer == true);
     if (gpt_variant_params_.has_positional_encoding) {
         loadWeightFromBin<T>(
@@ -343,8 +346,10 @@ void ParallelGptWeight<T>::loadModel(std::string dir_path)
             }
         }
     }
+    // 通过weight ptr来初始化Embedding、Postion和layer norm等参数
     setWeightPtr();
 
+    // 加载layers weight
     for (int l = 0; l < num_layer_; l++) {
         if (isValidLayerParallelId(l)) {
             decoder_layer_weights[l]->loadModel(dir_path + "/model.layers." + std::to_string(l), model_file_type);

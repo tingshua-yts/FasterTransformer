@@ -240,10 +240,6 @@ void multi_gpu_gpt_example(const INIReader reader, std::string in_csv)
 
     ft_nvtx::setScope("warmup_time");
     PUSH_RANGE("warmup time")
-    while(true) {
-        sleep(3);
-        std::cout << "sleep 3s" << std::endl;
-    }
     for (int i = 0; i < ite; ++i) {
         gpt.forward(&output_tensors, &input_tensors, &gpt_weights);
     }

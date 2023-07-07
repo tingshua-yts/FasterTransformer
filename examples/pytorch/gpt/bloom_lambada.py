@@ -296,6 +296,7 @@ def split_inputs_and_targets(entries: Dict[str, torch.LongTensor],
     input_lengths = torch.tensor(
         [len(input_tokens) for input_tokens in input_token_ids]).int()
     max_length = input_lengths.max()
+    #print(f"max_input_length: {max_length}")
     input_token_ids = torch.stack([
         torch.nn.functional.pad(
             token_ids,
@@ -374,7 +375,7 @@ def main():
                 out[0, length:length+len(tgt)].cpu()
                 for out, length, tgt
                 in zip(outputs, input_lengths, target_token_ids)]
-
+        print(f"output_token_ids:{output_token_ids}")
         output_texts = tokenizer.batch_decode(output_token_ids)
         target_texts = tokenizer.batch_decode(target_token_ids)
         input_texts = tokenizer.batch_decode(input_token_ids)

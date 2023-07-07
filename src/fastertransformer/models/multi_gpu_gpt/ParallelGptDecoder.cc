@@ -322,7 +322,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
         T* decoder_input = (l == 0) ? input_tensors->at("decoder_input").getPtr<T>() : decoder_layer_output_;
         T* decoder_output =
             (l == num_layer_ - 1) ? output_tensors->at("decoder_output").getPtr<T>() : decoder_layer_output_;
-
+        // first layer recv input tensor
         if (isFirstLayerParallelId(l) == true && pipeline_para_.rank_ != 0 && pipeline_para_.world_size_ > 1) {
             size_t data_size = local_batch_size * hidden_units_ / tensor_para_.world_size_;
             PUSH_RANGE("input communication");
@@ -341,7 +341,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
 
         PUSH_RANGE("pre-mha layernorm");
         ParallelGptDecoderLayerWeight<T>* layer_weight = gpt_decoder_layer_weight->at(l);
-
+        // 计算pre_layernorm
         if (layernorm_type_ == LayerNormType::pre_layernorm) {
             invokeGeneralLayerNorm(decoder_normed_input_,
                                    decoder_input,
@@ -357,6 +357,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
         sync_check_cuda_error();
         POP_RANGE;
 
+        // 构造input tensor
         TensorMap self_attention_input_tensors{
             {"input_query",
              Tensor{MEMORY_GPU,
@@ -385,7 +386,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
             ite_cache_offset *= *t;
         }
         cache_offset += ite_cache_offset;
-
+        // 构造output tensor
         TensorMap self_attention_output_tensors{
             {"hidden_features",
              Tensor(MEMORY_GPU, activation_out_type, {local_batch_size, hidden_units_}, self_attn_output_)},
@@ -393,6 +394,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
             {"value_cache",
              Tensor(MEMORY_GPU, data_type, self_v_cache_size, v_cache.getPtrWithOffset<T>(cache_offset))}};
 
+        // 计算self attention
         self_attention_layer_->forward(
             &self_attention_output_tensors, &self_attention_input_tensors, &layer_weight->self_attention_weights);
 
@@ -423,7 +425,8 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
             ffn_layer_->forward(
                 &ffn_output_tensors, &ffn_input_tensors, &layer_weight->after_attention_adapter_weights);
         }
-
+        // 若layernorm_type_为pre_layernorm则计算AddBiasResidualPreLayerNorm，这里包含了FFN的prelayernorm
+        // 若layernorm_type_为post_layernorm则计算invokeAddBiasResidualLayerNorm
         if (layernorm_type_ == LayerNormType::pre_layernorm) {
             invokeGeneralAddBiasResidualPreLayerNorm(
                 // in case of has_adaptor false isn't it self_attn_output_? i.e.
@@ -466,7 +469,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
         POP_RANGE;
 
         T* ffn_output_ptr = has_adapters_ ? self_attn_output_ : decoder_output;
-
+        // 构造ffn input
         TensorMap ffn_input_tensors(
             {{"ffn_input",
               Tensor{MEMORY_GPU,
@@ -474,6 +477,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
                      {local_batch_size, hidden_units_},
                      layernorm_type_ == LayerNormType::pre_layernorm ? normed_self_attn_output_ :
                                                                        after_adapter_attn_output_}}});
+        // 构造ffn output
         TensorMap ffn_output_tensors;
         if (!use_moe) {
             ffn_output_tensors.insert(
@@ -498,6 +502,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
                 Tensor{MEMORY_GPU, TYPE_INT32, {local_batch_size, moe_k_}, expert_for_source_row_});
         }
 
+        // 计算forward
         ffn_layer_->resetInterSize(inter_size_ / tensor_para_.world_size_);
         ffn_layer_->forward(&ffn_output_tensors, &ffn_input_tensors, &layer_weight->ffn_weights);
 
@@ -552,6 +557,8 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
         }
 
         if (!use_moe) {
+            // 若layernorm_type_为pre_layernorm则计算invokeAddBiasResidual
+            // 若layernorm_type_为post_layernorm则计算invokeAddBiasResidualLayerNorm
             if (layernorm_type_ == LayerNormType::pre_layernorm) {
                 invokeAddBiasResidual(decoder_output,
                                       decoder_output,
@@ -625,6 +632,7 @@ void ParallelGptDecoder<T>::forward(std::unordered_map<std::string, Tensor>*    
         sync_check_cuda_error();
         POP_RANGE;
 
+        // 如果是last layer，要处理send output
         PUSH_RANGE("Nccl send");
         if (isLastLayerParallelId(l) == true && pipeline_para_.rank_ != pipeline_para_.world_size_ - 1
             && pipeline_para_.world_size_ > 1) {
