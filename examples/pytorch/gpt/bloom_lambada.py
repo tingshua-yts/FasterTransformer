@@ -154,6 +154,9 @@ def get_args():
         '--show-progress', action='store_true',
         help='Show evaluation progress')
     group.add_argument(
+        '--multi-gpu', action='store_true',
+        help='use multi gpu for inference')
+    group.add_argument(
         '--inference-data-type', '--data-type', type=str, metavar='TYPE', default=None,
         choices=[None, 'fp32', 'fp16', 'bf16'],
         help='The data type to inference. If None, the data type follows the '
@@ -201,10 +204,13 @@ def get_model_and_tokenizer(args: argparse.Namespace):
     # 加载HF模型
     if args.test_hf:
         # Load HF's pretrained model for testing.
-        # model = transformers.AutoModelForCausalLM.from_pretrained(
-        #     args.tokenizer_path).cuda()
-        model = transformers.AutoModelForCausalLM.from_pretrained(
+        if args.multi_gpu:
+            model = transformers.AutoModelForCausalLM.from_pretrained(
             args.tokenizer_path, device_map="balanced_low_0", torch_dtype=torch.float16)
+        else:
+            model = transformers.AutoModelForCausalLM.from_pretrained(
+                args.tokenizer_path, torch_dtype=torch.float16).cuda()
+
         return model, tokenizer
 
     # 加载FT模型
@@ -375,7 +381,7 @@ def main():
                 out[0, length:length+len(tgt)].cpu()
                 for out, length, tgt
                 in zip(outputs, input_lengths, target_token_ids)]
-        print(f"output_token_ids:{output_token_ids}")
+        #print(f"output_token_ids:{output_token_ids}")
         output_texts = tokenizer.batch_decode(output_token_ids)
         target_texts = tokenizer.batch_decode(target_token_ids)
         input_texts = tokenizer.batch_decode(input_token_ids)

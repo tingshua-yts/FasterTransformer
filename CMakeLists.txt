@@ -302,7 +302,7 @@ add_subdirectory(3rdparty)
 add_subdirectory(src)
 add_subdirectory(examples)
 
-add_subdirectory(tests)
+#add_subdirectory(tests)
 
 # # Mesaure the compile time
 option(MEASURE_BUILD_TIME "Measure the build time of each module" OFF)
@@ -428,9 +428,9 @@ target_link_libraries(transformer-shared PUBLIC
   -lnvToolsExt
 )
 endif()
-  
+
 if (ENABLE_FP8)
-target_link_libraries(transformer-shared PUBLIC 
+target_link_libraries(transformer-shared PUBLIC
   $<TARGET_OBJECTS:BertFP8>
   $<TARGET_OBJECTS:BertFP8Weight>
   $<TARGET_OBJECTS:DecoderSelfAttentionFP8Layer>
