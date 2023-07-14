@@ -27,6 +27,7 @@ add_subdirectory(t5)
 add_subdirectory(bart)
 add_subdirectory(gptj)
 add_subdirectory(gptneox)
+add_subdirectory(llama)
 add_subdirectory(multi_gpu_gpt)
 if(ENABLE_FP8)
 add_subdirectory(gpt_fp8)
@@ -37,3 +38,4 @@ add_subdirectory(vit)
 add_subdirectory(vit_int8)
 
 add_subdirectory(wenet)
+

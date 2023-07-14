@@ -3,7 +3,7 @@ set -e
 export CUDA_VISIBLE_DEVICES=2
 #ckp=/mnt/model/bloom-7b-pai/ft_model/2-gpu
 #ckp=/mnt/model/bloom-7b1-ft/2-gpu/
-ckp=/mnt/model/bloom-7b1-ft-fp16/1-gpu
+ckp=/mnt/model/bloom-7b1-ft-fp16/2-gpu
 #ckp=/mnt/model/bloom-7b-pai/ft_model_fp16/2-gpu
 workd_size=1
 mpirun --allow-run-as-root -n $workd_size python ../../examples/pytorch/gpt/bloom_lambada.py \

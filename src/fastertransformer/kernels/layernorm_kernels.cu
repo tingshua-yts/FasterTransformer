@@ -1445,6 +1445,17 @@ __global__ void generalAddResidualT5LayerNorm(const T* __restrict input,
     }
 }
 
+#ifdef ENABLE_BF16
+template void invokeGeneralAddResidualT5PreLayerNorm(__nv_bfloat16*       output,
+                                                     __nv_bfloat16*       norm_output,
+                                                     const __nv_bfloat16* input,
+                                                     const __nv_bfloat16* gamma,
+                                                     const float          layernorm_eps,
+                                                     int                  m,
+                                                     int                  n,
+                                                     cudaStream_t         stream);
+#endif
+
 template<typename T>
 void invokeGeneralAddResidualT5PreLayerNorm(T*           output,
                                             T*           norm_output,

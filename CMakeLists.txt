@@ -348,6 +348,12 @@ add_library(transformer-shared SHARED
   $<TARGET_OBJECTS:ParallelGptDecoderLayerWeight>
   $<TARGET_OBJECTS:ParallelGptTritonBackend>
   $<TARGET_OBJECTS:ParallelGptWeight>
+  $<TARGET_OBJECTS:Llama>
+  $<TARGET_OBJECTS:LlamaContextDecoder>
+  $<TARGET_OBJECTS:LlamaDecoder>
+  $<TARGET_OBJECTS:LlamaDecoderLayerWeight>
+  $<TARGET_OBJECTS:LlamaTritonBackend>
+  $<TARGET_OBJECTS:LlamaWeight>
   $<TARGET_OBJECTS:T5Common>
   $<TARGET_OBJECTS:T5Decoder>
   $<TARGET_OBJECTS:T5Decoding>
